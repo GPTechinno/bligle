@@ -1,0 +1,27 @@
+[package]
+name = "bligle"
+version = "0.1.0"
+edition = "2024"
+description = "bligle: Eagle schematic and board viewer, side by side and cross-probed, built on Blit"
+
+[dependencies]
+anyhow = "1"
+roxmltree = "0.21"
+tiny-skia = "0.11.4"
+ttf-parser = "0.25.1"
+fontdb = "0.24"
+serde_json = { version = "1", features = ["preserve_order"] }
+blit = { git = "https://github.com/nicoburniske/blit", rev = "67a12534df881e5ea5b7d27c1ef95bc753162bc2" }
+blit-gui = { git = "https://github.com/nicoburniske/blit", rev = "67a12534df881e5ea5b7d27c1ef95bc753162bc2" }
+blit-gui-widgets = { git = "https://github.com/nicoburniske/blit", rev = "67a12534df881e5ea5b7d27c1ef95bc753162bc2" }
+blit-desktop = { git = "https://github.com/nicoburniske/blit", rev = "67a12534df881e5ea5b7d27c1ef95bc753162bc2", features = ["cpu"] }
+blit-cpu = { git = "https://github.com/nicoburniske/blit", rev = "67a12534df881e5ea5b7d27c1ef95bc753162bc2" }
+blit-text-parley = { git = "https://github.com/nicoburniske/blit", rev = "67a12534df881e5ea5b7d27c1ef95bc753162bc2" }
+# only to name the window types of blit_desktop::GraphicsBackend in the offscreen backend
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "wayland", "wayland-dlopen"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

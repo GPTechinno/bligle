@@ -1,0 +1,4 @@
+[env]
+# blit uses nightly-only features (portable_simd, must_not_suspend); this lets the
+# stable toolchain from devenv compile them
+RUSTC_BOOTSTRAP = "1"
