@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=bligle
+GenericName=Eagle Viewer
+Comment=Eagle schematics and boards side by side, one selection highlighted on both
+Exec=bligle %f
+Icon=bligle
+Terminal=false
+Categories=Development;Electronics;Engineering;
+Keywords=eagle;schematic;board;pcb;sch;brd;viewer;
+MimeType=application/x-eagle-schematic;application/x-eagle-board;

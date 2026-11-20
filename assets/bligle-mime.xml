@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Eagle 6+ XML files, so file managers open them with bligle. The magic (the DTD
+     line Eagle writes) tells them from other tools' .sch / .brd files. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-eagle-schematic">
+    <comment>Eagle schematic</comment>
+    <sub-class-of type="application/xml"/>
+    <generic-icon name="bligle"/>
+    <glob pattern="*.sch"/>
+    <magic priority="60">
+      <match type="string" offset="0:256" value="&lt;!DOCTYPE eagle"/>
+    </magic>
+  </mime-type>
+  <mime-type type="application/x-eagle-board">
+    <comment>Eagle board</comment>
+    <sub-class-of type="application/xml"/>
+    <generic-icon name="bligle"/>
+    <glob pattern="*.brd"/>
+    <magic priority="60">
+      <match type="string" offset="0:256" value="&lt;!DOCTYPE eagle"/>
+    </magic>
+  </mime-type>
+</mime-info>

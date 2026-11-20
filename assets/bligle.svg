@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- bligle: an eagle selected in a schematic (left, a thin wire on paper) and on its
+       board (right, a copper trace with a via for an eye), highlighted on both sides -->
+  <defs>
+    <clipPath id="tile"><rect x="8" y="8" width="240" height="240" rx="54"/></clipPath>
+    <clipPath id="sheet"><rect x="0" y="0" width="112" height="256"/></clipPath>
+    <clipPath id="board"><rect x="112" y="0" width="144" height="256"/></clipPath>
+    <pattern id="grid" width="12" height="12" patternUnits="userSpaceOnUse">
+      <circle cx="6" cy="6" r="1.1" fill="#ddd6c4"/>
+    </pattern>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <path id="eagle" d="M54 260 V138 L102 90 H150 L166 106 C198 106 214 132 205 176 L188 156 H154 L126 184 V260"/>
+  </defs>
+  <g clip-path="url(#tile)">
+    <!-- schematic: paper, grid, a resistor between two nets (dimmed: not selected) -->
+    <rect width="112" height="256" fill="#f7f3e8"/>
+    <rect width="112" height="256" fill="url(#grid)"/>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.4">
+      <path d="M22 46 h12 l4 -8 l8 16 l8 -16 l8 16 l8 -16 l4 8 h12" stroke="#a51919" stroke-width="4"/>
+      <path d="M22 46 v18 M86 46 v18" stroke="#148228" stroke-width="4"/>
+    </g>
+    <!-- board: top and bottom copper ending on pads (dimmed) -->
+    <rect x="112" width="144" height="256" fill="#0e1014"/>
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.45">
+      <path d="M160 30 h34 l22 22 h40" stroke="#c83232" stroke-width="7"/>
+      <path d="M196 232 l22 -22 h40" stroke="#3250d2" stroke-width="7"/>
+    </g>
+    <g fill="#28aa3c" opacity="0.45">
+      <circle cx="160" cy="30" r="8"/>
+      <circle cx="196" cy="232" r="8"/>
+    </g>
+    <!-- the selection -->
+    <g fill="none" stroke="#ff8c00" stroke-linecap="round" stroke-linejoin="round">
+      <use href="#eagle" stroke-width="14" clip-path="url(#board)" filter="url(#glow)" opacity="0.55"/>
+      <use href="#eagle" stroke-width="8" clip-path="url(#sheet)"/>
+      <use href="#eagle" stroke-width="13" clip-path="url(#board)"/>
+      <path d="M120 106 H166" stroke-width="8"/>
+    </g>
+    <circle cx="144" cy="124" r="10.5" fill="#ff8c00"/>
+    <circle cx="144" cy="124" r="4.2" fill="#0e1014"/>
+    <!-- the divider between the two views -->
+    <rect x="110" width="4" height="256" fill="#000" opacity="0.5"/>
+  </g>
+</svg>

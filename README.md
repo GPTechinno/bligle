@@ -1,5 +1,7 @@
 # bligle
 
+<img src="assets/bligle.svg" alt="" width="96" align="right">
+
 **bl**it + ea**gle**: a viewer for Eagle schematics (`.sch`) and boards (`.brd`),
 side by side in one native window built with the
 [Blit](https://github.com/nicoburniske/blit) UI toolkit. Select a part or a net on
@@ -12,6 +14,28 @@ bligle                            # reopens the last project
 
 The `.sch` and `.brd` with the same name load together (Eagle 6+ XML files embed their
 libraries, so nothing else is needed). Either one alone opens too.
+
+## Install
+
+With Nix (flakes):
+
+```
+nix run github:GPTechinno/bligle -- path/to/Project.sch
+nix profile install github:GPTechinno/bligle
+```
+
+On NixOS, add `(builtins.getFlake "github:GPTechinno/bligle").packages.${system}.default`
+to your packages, or the flake's `overlays.default` to `nixpkgs.overlays` and then
+`pkgs.bligle`. The package installs a desktop entry (so launchers list bligle, and
+starting it there reopens the last project), its icon, and MIME types for Eagle files
+so file managers open `.sch` / `.brd` with it.
+
+Blit draws its own window on Wayland and sets no app id, so window rules match the
+title, `<project> — bligle` (or `bligle` before a project opens). On Hyprland:
+
+```
+windowrule = float on, match:title ^((.* — )?bligle)$
+```
 
 ## Viewer
 
@@ -75,14 +99,18 @@ renderer offscreen for the whole UI, so it works without a display.
 ## Building
 
 ```
+nix develop                       # or direnv with `use flake`: cargo, rust-analyzer, libraries
 cargo build --release
 cargo test --release
+nix build                         # the package: binary, desktop entry, icons, MIME types
 ```
 
 Blit uses a few nightly-only Rust features; `.cargo/config.toml` sets `RUSTC_BOOTSTRAP=1`
 so the stable toolchain builds it. On Linux the window runs on Wayland and Blit loads
-`libwayland-client`, `libxkbcommon` and `fontconfig` at runtime: the devenv in the
-parent folder puts them on `LD_LIBRARY_PATH`. Headless commands need none of them.
+`libwayland-client`, `libxkbcommon` and `fontconfig` at runtime: the dev shell puts
+them on `LD_LIBRARY_PATH`, and the package in the binary's runpath. Headless commands
+need none of them. A flake only sees the files git tracks: `git add` new files before
+`nix build`. The logo is `assets/bligle.svg`; the package renders its PNG sizes.
 
 ## How it works
 
@@ -105,3 +133,5 @@ parent folder puts them on `LD_LIBRARY_PATH`. Headless commands need none of the
 - Busses are drawn but not selectable; implicit supply connections (hidden power pins)
   are not resolved.
 - Older binary (pre-6) Eagle files are not supported.
+- The window has no Wayland app id (Blit does not set one), so taskbars cannot match
+  it to the desktop entry's icon.
