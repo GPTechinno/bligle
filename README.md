@@ -7,6 +7,7 @@ either side and it is highlighted on both. View only, no editing.
 
 ```
 bligle path/to/Project.sch        # or Project.brd, or just path/to/Project
+bligle                            # reopens the last project
 ```
 
 The `.sch` and `.brd` with the same name load together (Eagle 6+ XML files embed their
@@ -23,11 +24,22 @@ libraries, so nothing else is needed). Either one alone opens too.
 | `/` or the search field | find a part or net by name, Enter selects it |
 | `F` / `Z` | fit everything / zoom to the selection |
 | PgUp / PgDn | previous / next sheet |
+| Ctrl+O, or the project name | the project list |
 | Esc | clear the selection |
 
 When you select something on one side, the other side brings it into view, switching
 to the right sheet. The bar at the bottom describes the selection (value, package,
 position and side on the board, sheet, description).
+
+### Projects
+
+bligle remembers the projects it opened, each with its sheet, selection and views, and
+starts with the last one when no project is given. The project list (Ctrl+O, or click
+the project name at the top) shows them, most recent first, then the other projects
+found in their folders: click one, or press 1–9, to switch to it. Type `/` or `~` to
+enter a path: a `.sch` or `.brd` opens, a folder adds its projects to the list. The
+list lives in `$XDG_STATE_HOME/bligle/sessions` (`~/.local/state/bligle/sessions`);
+the headless commands never change it.
 
 ## Headless mode (for scripts and AI agents)
 
@@ -49,7 +61,8 @@ bligle <project> render out.png --select GND
                                       # PNG of the whole UI (both sides, like the window)
 bligle <project> render out.png --actions 'click:1340,440;wheel:420,560,3;key:/;text:C12;key:enter'
                                       # the UI after scripted input (click, dclick, drag,
-                                      # wheel, key, text), to check interactions
+                                      # wheel, key (ctrl+o, esc, enter, pgdn, …), text),
+                                      # to check interactions
 bligle <project> shell                # read commands from stdin, one per line
 ```
 
@@ -80,7 +93,8 @@ parent folder puts them on `LD_LIBRARY_PATH`. Headless commands need none of the
   and net; selection, highlighting and picking all work from those tags.
 - `render.rs` draws a scene with tiny-skia (text from system font outlines, `text.rs`).
 - `app.rs` is the Blit UI; each canvas re-renders its image when its view or the
-  selection changes.
+  selection changes. It also holds the project list.
+- `sessions.rs` keeps the recent projects and the state each was left in.
 - `headless.rs` holds the commands and the offscreen UI screenshots.
 
 ## Limitations

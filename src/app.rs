@@ -1,6 +1,8 @@
-//! the viewer: the schematic and the board side by side, one selection shared by both
+//! the viewer: the schematic and the board side by side, one selection shared by both,
+//! and the list of recent projects to switch between
 
 use std::{
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
@@ -21,7 +23,7 @@ use blit_gui::{
     text::{TextOptions, TextOverflow, TextStyle},
 };
 use blit_gui_widgets::{
-    Text, interact,
+    ScrollArea, ScrollState, Text, interact,
     layout::{Align, Justify, Sizing, flex},
 };
 
@@ -29,6 +31,7 @@ use crate::{
     design::{Design, Kind, Scene, Selection},
     geom::{Rect, Viewport},
     render::{self, HIGHLIGHT, Rgb},
+    sessions::{self, Entry, Session, Sessions, View},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,7 +74,10 @@ struct Canvas {
 }
 
 pub struct App {
+    /// an empty design when no project is open
     pub design: Arc<Design>,
+    /// the open project's file, its key in the sessions
+    path: Option<PathBuf>,
     pub sheet: usize,
     pub selection: Selection,
     sch: Canvas,
@@ -86,6 +92,20 @@ pub struct App {
     scale: Arc<AtomicU32>,
     /// reveal the selection on these sides once their canvas has a size (zoom when true)
     pending_reveal: Vec<(Side, bool)>,
+    sessions: Sessions,
+    /// the sheet and selection last written to the sessions
+    saved: (usize, Selection),
+    /// the project list, shown instead of the panes
+    projects: Option<Projects>,
+    /// folders opened from the project list's path field
+    folders: Vec<PathBuf>,
+}
+
+struct Projects {
+    entries: Vec<Entry>,
+    /// a path being typed
+    input: Option<String>,
+    scroll: ScrollState,
 }
 
 /// the scene a side shows
@@ -97,9 +117,11 @@ fn scene(design: &Design, sheet: usize, side: Side) -> Option<&Scene> {
 }
 
 impl App {
-    pub fn new(design: Arc<Design>, scale: Arc<AtomicU32>) -> App {
-        App {
-            design,
+    /// no project open yet: the project list shows
+    pub fn new(scale: Arc<AtomicU32>, sessions: Sessions) -> App {
+        let mut app = App {
+            design: Arc::new(Design::new(String::new(), None, None, None, None)),
+            path: None,
             sheet: 0,
             selection: Selection::None,
             sch: Canvas::default(),
@@ -111,6 +133,161 @@ impl App {
             raw_drag: None,
             scale,
             pending_reveal: Vec::new(),
+            sessions,
+            saved: (0, Selection::None),
+            projects: None,
+            folders: Vec::new(),
+        };
+        app.show_projects();
+        app
+    }
+
+    /// shows a design as it opens (the headless screenshots start there)
+    pub fn set_design(&mut self, design: Arc<Design>) {
+        self.path = sessions::key(&design);
+        self.design = design;
+        self.sheet = 0;
+        self.selection = Selection::None;
+        self.sch = Canvas::default();
+        self.brd = Canvas::default();
+        self.hover = (Side::Sch, Selection::None);
+        self.search = None;
+        self.message = None;
+        self.last_click = None;
+        self.raw_drag = None;
+        self.pending_reveal.clear();
+        self.saved = (0, Selection::None);
+        self.projects = None;
+    }
+
+    /// opens a loaded project where it was left, and puts it first in the recent ones
+    pub fn show(&mut self, design: Arc<Design>) {
+        self.remember();
+        self.set_design(design);
+        let Some(path) = self.path.clone() else { return };
+        if let Some(saved) = self.sessions.get(&path).cloned() {
+            self.restore(&saved);
+        }
+        self.sessions.touch(&path);
+        self.remember();
+        self.sessions.save();
+    }
+
+    /// opens a project file, or lists the projects of a folder
+    pub fn open(&mut self, path: &Path) {
+        if path.is_dir() {
+            let dir = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            self.folders.retain(|d| *d != dir);
+            self.folders.insert(0, dir);
+            self.show_projects();
+            return;
+        }
+        match Design::open(path) {
+            Ok(design) => self.show(Arc::new(design)),
+            Err(error) => {
+                self.message = Some(format!("{error:#}"));
+                self.show_projects();
+            }
+        }
+    }
+
+    /// reopens the most recent project that still exists
+    pub fn open_last(&mut self) {
+        let last = self
+            .sessions
+            .list
+            .iter()
+            .find(|s| crate::design::project_files(&s.path).is_ok())
+            .map(|s| s.path.clone());
+        match last {
+            Some(path) => self.open(&path),
+            None => self.show_projects(),
+        }
+    }
+
+    /// the window title
+    pub fn title(&self) -> String {
+        match self.path {
+            Some(_) => format!("{} — bligle", self.design.name),
+            None => "bligle".to_string(),
+        }
+    }
+
+    fn show_projects(&mut self) {
+        // a headless screenshot's project is not in the (read-only) list yet
+        if let Some(path) = &self.path
+            && self.sessions.get(path).is_none()
+        {
+            self.sessions.touch(&path.clone());
+        }
+        let entries = self.sessions.entries(&self.folders);
+        match &mut self.projects {
+            Some(projects) => projects.entries = entries,
+            None => {
+                self.projects = Some(Projects {
+                    entries,
+                    input: None,
+                    scroll: ScrollState::new(),
+                })
+            }
+        }
+    }
+
+    /// back to the viewer, when a project is open
+    fn hide_projects(&mut self) {
+        if self.path.is_some() {
+            self.projects = None;
+        }
+    }
+
+    /// stores the open project's sheet, selection and views in the sessions
+    fn remember(&mut self) {
+        let Some(path) = self.path.clone() else { return };
+        let selection = match self.selection {
+            Selection::None => None,
+            Selection::Part(p) => Some(format!("part:{}", self.design.parts[p as usize].name)),
+            Selection::Net(n) => Some(format!("net:{}", self.design.nets[n as usize].name)),
+        };
+        let view = |canvas: &Canvas| {
+            canvas.view.map(|v| View {
+                center: v.center,
+                scale: v.scale,
+            })
+        };
+        let opened = self.sessions.get(&path).map_or_else(sessions::now, |s| s.opened);
+        self.sessions.update(Session {
+            path,
+            opened,
+            sheet: self.sheet,
+            selection,
+            views: [view(&self.sch), view(&self.brd)],
+        });
+        self.saved = (self.sheet, self.selection);
+    }
+
+    /// back to a saved sheet, selection and views
+    fn restore(&mut self, saved: &Session) {
+        if saved.sheet < self.design.sheets.len() {
+            self.sheet = saved.sheet;
+        }
+        self.selection = match saved.selection.as_deref().and_then(|s| s.split_once(':')) {
+            Some(("part", name)) => self.design.part_id(name).map_or(Selection::None, Selection::Part),
+            Some(("net", name)) => self.design.net_id(name).map_or(Selection::None, Selection::Net),
+            _ => Selection::None,
+        };
+        for (canvas, view) in [&mut self.sch, &mut self.brd].into_iter().zip(saved.views) {
+            // the canvas sets the size on its next frame
+            canvas.view = view.map(|v| Viewport {
+                center: v.center,
+                scale: v.scale,
+                width: 1,
+                height: 1,
+            });
+        }
+        for (side, view) in [(Side::Sch, saved.views[0]), (Side::Brd, saved.views[1])] {
+            if view.is_none() {
+                self.pending_reveal.push((side, false));
+            }
         }
     }
 
@@ -212,12 +389,20 @@ impl App {
     pub fn render(&mut self, ui: Ui<'_>) {
         let input = ui.input();
         self.keys(input);
+        // the sheet and selection are saved as they change (the views when leaving)
+        if self.path.is_some() && self.saved != (self.sheet, self.selection) {
+            self.remember();
+            self.sessions.save();
+        }
         let mut root = ui.layout(flex::column().align(Align::Stretch));
         root.insert(Rectangle::new().background(colors::BACKGROUND));
         root.child()
             .item(flex::item().width(Sizing::grow()))
             .build(|ui: Ui<'_>| self.top_bar(ui));
         root.child().item(flex::item().grow()).build(|ui: Ui<'_>| {
+            if self.projects.is_some() {
+                return self.projects_page(ui);
+            }
             let mut row = ui.layout(flex::row().align(Align::Stretch));
             row.child()
                 .item(flex::item().grow())
@@ -235,6 +420,60 @@ impl App {
     }
 
     fn keys(&mut self, input: Input<f32>) {
+        let toggle = matches!(
+            input,
+            Input::Key(KeyInput { key: Key::Character('o' | 'O'), pressed: true, modifiers, .. }) if modifiers.control()
+        );
+        if let Some(projects) = &mut self.projects {
+            if let Some(path) = &mut projects.input {
+                match input {
+                    Input::Text(c) if !c.is_control() => path.push(c),
+                    Input::Key(KeyInput { key, pressed: true, .. }) => match key {
+                        Key::Backspace => {
+                            path.pop();
+                        }
+                        Key::Escape => projects.input = None,
+                        Key::Enter => {
+                            let text = projects.input.take().unwrap_or_default();
+                            if !text.trim().is_empty() {
+                                self.message = None;
+                                self.open(&sessions::expand(text.trim()));
+                            }
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+                return;
+            }
+            match input {
+                // a path starts with / or ~
+                Input::Text(c @ ('/' | '~')) => {
+                    projects.input = Some(c.to_string());
+                    self.message = None;
+                }
+                Input::Text(c @ '1'..='9') => {
+                    let n = c as usize - '1' as usize;
+                    let recent = projects.entries.iter().filter(|e| e.opened.is_some()).nth(n);
+                    if let Some(path) = recent.map(|e| e.path.clone()) {
+                        self.open(&path);
+                    }
+                }
+                Input::Key(KeyInput {
+                    key: Key::Escape,
+                    pressed: true,
+                    ..
+                }) => self.hide_projects(),
+                _ if toggle => self.hide_projects(),
+                _ => {}
+            }
+            return;
+        }
+        if toggle {
+            self.search = None;
+            self.show_projects();
+            return;
+        }
         if let Some(query) = &mut self.search {
             match input {
                 Input::Text(c) if !c.is_control() => query.push(c),
@@ -286,11 +525,45 @@ impl App {
         bar.insert(Rectangle::new().background(colors::PANEL));
         bar.child()
             .insert(Text::new("bligle").style(style(15.0, rgb(HIGHLIGHT)).weight(700)));
-        bar.child()
-            .insert(Text::new(&self.design.name).style(style(14.0, colors::TEXT)));
+        // the project name opens the project list
+        let listing = self.projects.is_some();
+        let label = match self.path {
+            Some(_) => format!("{}  ▾", self.design.name),
+            None => "no project open".to_string(),
+        };
+        let toggled = bar.child().build(|mut ui: Ui<'_>| {
+            let press = ui.interact(interact::press());
+            let mut chip = ui.layout(flex::row().padding(Sides::xy(10.0, 4.0)));
+            chip.insert(
+                Rectangle::new()
+                    .background(if listing || press.hovered {
+                        colors::CHIP_HOVER
+                    } else {
+                        colors::PANEL
+                    })
+                    .radius(BorderRadius::uniform(4.0)),
+            );
+            chip.child().insert(Text::new(&label).style(style(14.0, colors::TEXT)));
+            press.clicked
+        });
+        if toggled {
+            if listing {
+                self.hide_projects();
+            } else {
+                self.search = None;
+                self.show_projects();
+            }
+        }
         bar.child()
             .item(flex::item().width(Sizing::grow()))
             .build(|_: Ui<'_>| {});
+        if listing {
+            if let Some(message) = &self.message {
+                bar.child()
+                    .insert(Text::new(message).style(style(13.0, Color::rgb(255, 120, 110))));
+            }
+            return;
+        }
         let search = match &self.search {
             Some(query) => format!("find: {query}▏"),
             None => "/ to find a part or net".to_string(),
@@ -319,6 +592,96 @@ impl App {
         if let Some(message) = &self.message {
             bar.child()
                 .insert(Text::new(message).style(style(13.0, Color::rgb(255, 120, 110))));
+        }
+    }
+
+    /// the recent projects, then the others found in their folders
+    fn projects_page(&mut self, ui: Ui<'_>) {
+        let current = self.path.clone();
+        let Some(Projects { entries, input, scroll }) = &mut self.projects else {
+            return;
+        };
+        let mut page = ui.layout(
+            flex::column()
+                .padding(Sides::xy(28.0, 18.0))
+                .gap(12.0)
+                .align(Align::Stretch),
+        );
+        page.insert(Rectangle::new().background(colors::BACKGROUND));
+
+        let typing = input.is_some();
+        let field = match input {
+            Some(text) => format!("open: {text}▏"),
+            None => "/ or ~ to type a path: a .sch, a .brd, or a folder to list its projects".to_string(),
+        };
+        let clicked = page.child().build(|mut ui: Ui<'_>| {
+            let press = ui.interact(interact::press());
+            let mut row = ui.layout(flex::row().padding(Sides::xy(12.0, 7.0)));
+            row.insert(
+                Rectangle::new()
+                    .background(if typing || press.hovered {
+                        colors::CHIP_HOVER
+                    } else {
+                        colors::CHIP
+                    })
+                    .radius(BorderRadius::uniform(4.0)),
+            );
+            row.child()
+                .insert(Text::new(&field).style(style(13.0, if typing { colors::TEXT } else { colors::MUTED })));
+            press.clicked
+        });
+        if clicked && !typing {
+            *input = Some(String::new());
+        }
+
+        let mut open: Option<PathBuf> = None;
+        if entries.is_empty() {
+            page.child().insert(
+                Text::new(
+                    "No project yet: type the path of an Eagle .sch or .brd above, or start with  bligle <project>",
+                )
+                .style(style(14.0, colors::MUTED)),
+            );
+        }
+        let entries = &*entries;
+        page.child()
+            .item(flex::item().grow())
+            .build(ScrollArea::new(scroll).clip(BoundsClip).build(|ui: Ui<'_>| {
+                let mut list = ui.layout(flex::column().gap(4.0).align(Align::Stretch));
+                let recent = entries.iter().filter(|e| e.opened.is_some()).count();
+                for (i, entry) in entries.iter().enumerate() {
+                    if i == 0 && recent > 0 {
+                        list.child()
+                            .insert(Text::new("Recent").style(style(13.0, colors::MUTED).weight(600)));
+                    }
+                    if i == recent {
+                        list.child()
+                            .item(flex::item().height(Sizing::fixed(8.0)))
+                            .build(|_: Ui<'_>| {});
+                        list.child()
+                            .insert(Text::new("In the same folders").style(style(13.0, colors::MUTED).weight(600)));
+                    }
+                    let is_current = current.as_ref() == Some(&entry.path);
+                    let key = if i < recent.min(9) {
+                        (i + 1).to_string()
+                    } else {
+                        String::new()
+                    };
+                    if list
+                        .child()
+                        .build(|ui: Ui<'_>| project_row(ui, entry, &key, is_current))
+                    {
+                        open = Some(entry.path.clone());
+                    }
+                }
+            }));
+        if let Some(path) = open {
+            self.message = None;
+            if current.as_ref() == Some(&path) {
+                self.hide_projects();
+            } else {
+                self.open(&path);
+            }
         }
     }
 
@@ -528,8 +891,17 @@ impl App {
         let d = &self.design;
         let mut fields: Vec<(String, Color)> = Vec::new();
         match self.selection {
+            _ if self.projects.is_some() => fields.push((
+                if self.path.is_some() {
+                    "click or 1–9: open a project  ·  / or ~: type a path  ·  Enter: open it  ·  Ctrl+O / Esc: back to the viewer"
+                } else {
+                    "click or 1–9: open a project  ·  / or ~: type a path  ·  Enter: open it"
+                }
+                .to_string(),
+                colors::MUTED,
+            )),
             Selection::None => fields.push((
-                "click: select  ·  double-click: zoom both  ·  drag / right-drag: pan  ·  wheel: zoom  ·  F: fit  ·  Z: zoom to selection  ·  /: find  ·  PgUp/PgDn: sheet  ·  Esc: clear".to_string(),
+                "click: select  ·  double-click: zoom both  ·  drag / right-drag: pan  ·  wheel: zoom  ·  F: fit  ·  Z: zoom to selection  ·  /: find  ·  PgUp/PgDn: sheet  ·  Ctrl+O: projects  ·  Esc: clear".to_string(),
                 colors::MUTED,
             )),
             Selection::Part(p) => {
@@ -570,6 +942,62 @@ impl App {
             );
         }
     }
+}
+
+impl Drop for App {
+    /// the views are saved when leaving a project, and so when the window closes
+    fn drop(&mut self) {
+        if self.path.is_some() {
+            self.remember();
+            self.sessions.save();
+        }
+    }
+}
+
+/// one project in the list; returns whether it was clicked
+fn project_row(mut ui: Ui<'_>, entry: &Entry, key: &str, current: bool) -> bool {
+    let press = ui.interact(interact::press());
+    let mut row = ui.layout(flex::row().padding(Sides::xy(12.0, 8.0)).gap(14.0).align(Align::Center));
+    row.insert(
+        Rectangle::new()
+            .background(if press.hovered {
+                colors::CHIP_HOVER
+            } else {
+                colors::PANEL
+            })
+            .radius(BorderRadius::uniform(5.0)),
+    );
+    let one_line = || TextOptions::new().overflow(TextOverflow::Ellipsis);
+    row.child()
+        .item(flex::item().width(Sizing::fixed(14.0)))
+        .insert(Text::new(key).style(style(13.0, colors::MUTED)));
+    row.child().item(flex::item().width(Sizing::fixed(300.0))).insert(
+        Text::new(&entry.name)
+            .style(style(14.0, if current { rgb(HIGHLIGHT) } else { colors::TEXT }).weight(600))
+            .options(one_line()),
+    );
+    row.child().item(flex::item().grow()).insert(
+        Text::new(&entry.folder)
+            .style(style(13.0, colors::MUTED))
+            .options(one_line()),
+    );
+    let files = match (entry.sch, entry.brd) {
+        (true, true) => "sch + brd",
+        (true, false) => "sch",
+        _ => "brd",
+    };
+    row.child()
+        .item(flex::item().width(Sizing::fixed(70.0)))
+        .insert(Text::new(files).style(style(12.0, colors::MUTED)));
+    let when = match (current, entry.opened) {
+        (true, _) => "open now".to_string(),
+        (false, Some(opened)) => sessions::ago(opened),
+        (false, None) => String::new(),
+    };
+    row.child()
+        .item(flex::item().width(Sizing::fixed(90.0)))
+        .insert(Text::new(&when).style(style(12.0, if current { rgb(HIGHLIGHT) } else { colors::MUTED })));
+    press.clicked
 }
 
 /// a small button; returns whether it was clicked
@@ -650,5 +1078,70 @@ impl<C: Context> Atom<C> for CanvasImage {
 
     fn paint_bounds(&self, area: LogicalRect) -> LogicalRect {
         LogicalRect::new(area.x, area.y, self.width, self.height)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::geom::Point;
+
+    /// each project keeps its selection and views across switches, and the last one
+    /// reopens with the next start
+    #[test]
+    fn sessions_follow_the_viewer() {
+        // the sample projects live next to the repository, not in it
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Projects/Leroy");
+        let a = dir.join("DataplugEmulator - revA0.sch");
+        let b = dir.join("GPTechinno - RIOM-ANA-Test - revA2.sch");
+        if !a.exists() || !b.exists() {
+            return;
+        }
+        let file = std::env::temp_dir().join(format!("bligle-sessions-{}", std::process::id()));
+        let _ = std::fs::remove_file(&file);
+        let scale = || Arc::new(AtomicU32::new(1.0f32.to_bits()));
+        let view = Viewport {
+            center: Point::new(12.5, -3.0),
+            scale: 9.0,
+            width: 100,
+            height: 80,
+        };
+        {
+            let mut app = App::new(scale(), Sessions::from_file(Some(file.clone()), true));
+            assert!(app.projects.is_some(), "the project list shows first");
+            app.open(&a);
+            assert!(app.projects.is_none());
+            assert!(app.select_named("AVR_MISO"));
+            app.brd.view = Some(view);
+            app.open(&b);
+            assert_eq!(app.selection, Selection::None);
+            app.open(&a);
+            assert_eq!(app.design.selection_name(app.selection), Some("AVR_MISO"));
+            assert_eq!(
+                app.brd.view.map(|v| (v.center, v.scale)),
+                Some((view.center, view.scale))
+            );
+            app.open(&b);
+        }
+        let mut app = App::new(scale(), Sessions::from_file(Some(file.clone()), true));
+        app.open_last();
+        assert_eq!(app.title(), "GPTechinno - RIOM-ANA-Test - revA2 — bligle");
+        app.show_projects();
+        let entries = &app.projects.as_ref().unwrap().entries;
+        let recent: Vec<&str> = entries
+            .iter()
+            .filter(|e| e.opened.is_some())
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(
+            recent,
+            ["GPTechinno - RIOM-ANA-Test - revA2", "DataplugEmulator - revA0"]
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.opened.is_none() && e.name == "GPTechinno - FoxTetrixInterface - revA2")
+        );
+        let _ = std::fs::remove_file(&file);
     }
 }

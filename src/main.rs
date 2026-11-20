@@ -9,6 +9,7 @@ mod eagle;
 mod geom;
 mod headless;
 mod render;
+mod sessions;
 mod text;
 
 use std::{
@@ -27,14 +28,15 @@ use blit_gui::{
     text::FontId,
 };
 
-use crate::{app::App, design::Design};
+use crate::{app::App, design::Design, sessions::Sessions};
 
 const USAGE: &str = "\
 bligle - Eagle schematic and board viewer, side by side
 
 usage:
-  bligle <project.sch | project.brd | project> [--select NAME] [--sheet N] [--size WxH]
-      opens the viewer; the .sch and .brd of the same name load together
+  bligle [project.sch | project.brd | project] [--select NAME] [--sheet N] [--size WxH]
+      opens the viewer; the .sch and .brd of the same name load together. Without a
+      project it reopens the last one; Ctrl+O lists the recent projects to switch to
   bligle <project> <command> [args] [--json]
       headless: answers about the design without opening a window
 
@@ -49,15 +51,22 @@ struct Options {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.is_empty() || matches!(args[0].as_str(), "-h" | "--help" | "help") {
+    if args
+        .first()
+        .is_some_and(|a| matches!(a.as_str(), "-h" | "--help" | "help"))
+    {
         print!("{USAGE}{}", headless::COMMANDS);
         return Ok(());
     }
-    let path = PathBuf::from(&args[0]);
-    let rest = &args[1..];
-    let design = Arc::new(Design::open(&path)?);
-    if rest.first().is_some_and(|a| !a.starts_with('-')) {
-        return headless::run(&design, rest);
+    // the project, unless only options follow (then the last project reopens)
+    let (design, rest) = match args.first() {
+        Some(first) if !first.starts_with('-') => (Some(Arc::new(Design::open(&PathBuf::from(first))?)), &args[1..]),
+        _ => (None, &args[..]),
+    };
+    if let Some(design) = &design
+        && rest.first().is_some_and(|a| !a.starts_with('-'))
+    {
+        return headless::run(design, rest);
     }
     let mut options = Options {
         select: None,
@@ -102,16 +111,23 @@ pub fn text_config() -> TextConfig {
 
 // ----------------------------------------------------------------- desktop
 
+/// the window, which blit hands to the graphics backend only: kept to retitle it
+type WindowSlot = Arc<Mutex<Option<Arc<winit::window::Window>>>>;
+
 struct Startup {
-    design: Arc<Design>,
+    design: Option<Arc<Design>>,
     options: Options,
     scale: Arc<AtomicU32>,
+    window: WindowSlot,
+    title: String,
 }
 
 static STARTUP: Mutex<Option<Startup>> = Mutex::new(None);
 
 struct Desktop {
     app: App,
+    window: WindowSlot,
+    title: String,
 }
 
 impl Application for Desktop {
@@ -119,28 +135,45 @@ impl Application for Desktop {
 
     fn new(_: EventLoopProxy<()>, _: Root<Self>, _: &mut DesktopContext) -> Self {
         let startup = STARTUP.lock().unwrap().take().expect("startup state");
-        let mut app = App::new(startup.design, startup.scale);
+        let mut app = App::new(startup.scale, Sessions::load(true));
+        match startup.design {
+            Some(design) => app.show(design),
+            None => app.open_last(),
+        }
         if let Some(sheet) = startup.options.sheet {
             app.set_sheet(sheet);
         }
         if let Some(name) = &startup.options.select {
             app.select_named(name);
         }
-        Desktop { app }
+        Desktop {
+            app,
+            window: startup.window,
+            title: startup.title,
+        }
     }
 
     fn input(&mut self, _: ()) {}
 
     fn render(&mut self, ui: Ui<'_>) {
         self.app.render(ui);
+        // the title names the open project, which changes from the project list
+        let title = self.app.title();
+        if title != self.title
+            && let Some(window) = self.window.lock().unwrap().as_ref()
+        {
+            window.set_title(&title);
+            self.title = title;
+        }
     }
 }
 
 /// passes everything to the real backend, noting the UI scale so the canvases render
-/// at the physical resolution
+/// at the physical resolution, and the window
 struct ScaleProbe {
     inner: Box<dyn GraphicsBackend>,
     scale: Arc<AtomicU32>,
+    window: WindowSlot,
 }
 
 impl GraphicsBackend for ScaleProbe {
@@ -149,6 +182,7 @@ impl GraphicsBackend for ScaleProbe {
     }
 
     fn resume(&mut self, window: Arc<winit::window::Window>) -> Result<(), GraphicsError> {
+        *self.window.lock().unwrap() = Some(window.clone());
         self.inner.resume(window)
     }
 
@@ -166,18 +200,26 @@ impl GraphicsBackend for ScaleProbe {
     }
 }
 
-fn run_desktop(design: Arc<Design>, options: Options) -> Result<()> {
+fn run_desktop(design: Option<Arc<Design>>, options: Options) -> Result<()> {
     let scale = Arc::new(AtomicU32::new(1.0f32.to_bits()));
-    let title = format!("{} — bligle", design.name);
+    let window = WindowSlot::default();
+    // the project name joins once it is open (the Hyprland rule floats `bligle` titles)
+    let title = match &design {
+        Some(design) => format!("{} — bligle", design.name),
+        None => "bligle".to_string(),
+    };
     let (width, height) = (options.width, options.height);
     *STARTUP.lock().unwrap() = Some(Startup {
         design,
         options,
         scale: scale.clone(),
+        window: window.clone(),
+        title: title.clone(),
     });
     let graphics = Box::new(ScaleProbe {
         inner: Box::new(blit_desktop::cpu::Backend::new(blit_desktop::cpu::Config::default())),
         scale,
+        window,
     });
     blit_desktop::run::<Desktop>(Config {
         title,

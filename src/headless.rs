@@ -28,6 +28,7 @@ use crate::{
     eagle::Prim,
     geom::{Rect, Viewport, arc_points},
     render,
+    sessions::Sessions,
 };
 
 pub const COMMANDS: &str = "\
@@ -43,8 +44,9 @@ commands (headless, for people and AI agents; add --json for JSON):
   render OUT.png [--view sch|brd|both] [--select NAME] [--sheet N] [--size WxH]
                               [--actions 'click:X,Y;dclick:X,Y;drag:X0,Y0,X1,Y1;wheel:X,Y,N;key:K;text:S']
                               draw the schematic or the board (zoomed on the selection),
-                              or the whole UI (both, the default) after scripted input
-  shell                       read commands from stdin, one per line, the design loaded once
+                              or the whole UI (both, the default) after scripted input;
+                              K: a character, esc, enter, pgup, pgdn, bksp, ctrl+K
+  shell                      read commands from stdin, one per line, the design loaded once
 ";
 
 /// runs one headless command; `args` holds the command and its arguments
@@ -822,7 +824,7 @@ enum Action {
     Drag(f32, f32, f32, f32),
     /// positive notches zoom in
     Wheel(f32, f32, f32),
-    Key(Key),
+    Key(Key, Modifiers),
     Text(String),
 }
 
@@ -854,14 +856,21 @@ impl Action {
                 let v = numbers(3)?;
                 Action::Wheel(v[0], v[1], v[2])
             }
-            "key" => Action::Key(match args {
-                "esc" => Key::Escape,
-                "enter" => Key::Enter,
-                "pgdn" => Key::PageDown,
-                "pgup" => Key::PageUp,
-                "bksp" => Key::Backspace,
-                other => Key::Character(other.chars().next().context("key needs a character")?),
-            }),
+            "key" => {
+                let (modifiers, key) = match args.strip_prefix("ctrl+") {
+                    Some(key) => (Modifiers::CONTROL, key),
+                    None => (Modifiers::NONE, args),
+                };
+                let key = match key {
+                    "esc" => Key::Escape,
+                    "enter" => Key::Enter,
+                    "pgdn" => Key::PageDown,
+                    "pgup" => Key::PageUp,
+                    "bksp" => Key::Backspace,
+                    other => Key::Character(other.chars().next().context("key needs a character")?),
+                };
+                Action::Key(key, modifiers)
+            }
             "text" => Action::Text(args.to_string()),
             _ => bail!("unknown action {spec}"),
         })
@@ -908,14 +917,20 @@ impl Action {
                     phase: ScrollPhase::Moved,
                 },
             ],
-            Action::Key(key) => {
-                let mut inputs = vec![Input::Key(KeyInput::new(key))];
-                if let Key::Character(c) = key {
+            Action::Key(key, modifiers) => {
+                let press = KeyInput {
+                    modifiers,
+                    ..KeyInput::new(key)
+                };
+                let mut inputs = vec![Input::Key(press)];
+                if let Key::Character(c) = key
+                    && modifiers == Modifiers::NONE
+                {
                     inputs.push(Input::Text(c));
                 }
                 inputs.push(Input::Key(KeyInput {
                     pressed: false,
-                    ..KeyInput::new(key)
+                    ..press
                 }));
                 inputs
             }
@@ -953,7 +968,10 @@ impl GraphicsBackend for Offscreen {
 /// renders the whole UI without a window, after the scripted actions
 fn screenshot(design: &Arc<Design>, options: &RenderOptions, selection: Selection) -> Result<()> {
     let (width, height) = (options.width, options.height);
-    let mut app = App::new(design.clone(), Arc::new(AtomicU32::new(1.0f32.to_bits())));
+    // the recent projects are read (Ctrl+O shows them) but never written, and the design
+    // opens fresh rather than where the viewer left it
+    let mut app = App::new(Arc::new(AtomicU32::new(1.0f32.to_bits())), Sessions::load(false));
+    app.set_design(design.clone());
     if let Some(sheet) = options.sheet {
         app.set_sheet(sheet);
     }
