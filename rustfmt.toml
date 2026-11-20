@@ -1,0 +1,3 @@
+# the style of Blit (its import options need a nightly rustfmt; the imports are
+# grouped by hand: std, external crates, then the crate)
+max_width = 120

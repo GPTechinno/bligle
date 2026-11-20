@@ -51,7 +51,9 @@ commands (headless, for people and AI agents; add --json for JSON):
 pub fn run(design: &Arc<Design>, args: &[String]) -> Result<()> {
     let json = args.iter().any(|a| a == "--json");
     let args: Vec<&str> = args.iter().map(String::as_str).filter(|a| *a != "--json").collect();
-    let Some((&command, rest)) = args.split_first() else { bail!("no command\n\n{COMMANDS}") };
+    let Some((&command, rest)) = args.split_first() else {
+        bail!("no command\n\n{COMMANDS}")
+    };
     let value = match command {
         "info" => info(design),
         "parts" => parts(design, rest.first().copied()),
@@ -141,12 +143,18 @@ fn info(d: &Design) -> Value {
     v.insert("design".into(), json!(d.name));
     v.insert("schematic".into(), rel(d.sch_path.as_deref()));
     v.insert("board".into(), rel(d.brd_path.as_deref()));
-    let version = d.sch.as_ref().map(|s| &s.version).or(d.brd.as_ref().map(|b| &b.version));
+    let version = d
+        .sch
+        .as_ref()
+        .map(|s| &s.version)
+        .or(d.brd.as_ref().map(|b| &b.version));
     v.insert("eagle_version".into(), json!(version));
     v.insert("sheets".into(), json!(d.sheets.len()));
     let in_sch = d.parts.iter().filter(|p| p.sch.is_some()).count();
     let on_brd = d.parts.iter().filter(|p| p.brd.is_some()).count();
-    let packaged = (0..d.parts.len() as u32).filter(|&p| d.sch_package(p).is_some()).count();
+    let packaged = (0..d.parts.len() as u32)
+        .filter(|&p| d.sch_package(p).is_some())
+        .count();
     v.insert(
         "parts".into(),
         json!({"schematic": in_sch, "with_package": packaged, "board": on_brd}),
@@ -159,7 +167,10 @@ fn info(d: &Design) -> Value {
             "board_size_mm".into(),
             json!([round(board.bounds.width()), round(board.bounds.height())]),
         );
-        v.insert("board_origin_mm".into(), json!([round(board.bounds.min.x), round(board.bounds.min.y)]));
+        v.insert(
+            "board_origin_mm".into(),
+            json!([round(board.bounds.min.x), round(board.bounds.min.y)]),
+        );
     }
     if let Some(brd) = &d.brd {
         let mut copper = BTreeSet::new();
@@ -179,11 +190,19 @@ fn info(d: &Design) -> Value {
         let names: Vec<&str> = copper.iter().map(|l| layer_name(d, *l)).collect();
         v.insert("copper_layers".into(), json!(names));
         v.insert("vias".into(), json!(vias));
-        let sides = brd.elements.iter().fold((0, 0), |(t, b), e| if e.rot.mirror { (t, b + 1) } else { (t + 1, b) });
+        let sides = brd
+            .elements
+            .iter()
+            .fold((0, 0), |(t, b), e| if e.rot.mirror { (t, b + 1) } else { (t + 1, b) });
         v.insert("elements_top_bottom".into(), json!([sides.0, sides.1]));
     }
     let mut libraries: BTreeSet<&str> = BTreeSet::new();
-    for lib in d.sch.iter().flat_map(|s| s.libraries.keys()).chain(d.brd.iter().flat_map(|b| b.libraries.keys())) {
+    for lib in d
+        .sch
+        .iter()
+        .flat_map(|s| s.libraries.keys())
+        .chain(d.brd.iter().flat_map(|b| b.libraries.keys()))
+    {
         libraries.insert(lib);
     }
     v.insert("libraries".into(), json!(libraries));
@@ -232,7 +251,10 @@ fn parts(d: &Design, filter: Option<&str>) -> Value {
     for (i, p) in d.parts.iter().enumerate() {
         let id = i as u32;
         let value = d.value(id);
-        let package = d.element(id).map(|e| e.package.clone()).or(d.sch_package(id).map(str::to_string));
+        let package = d
+            .element(id)
+            .map(|e| e.package.clone())
+            .or(d.sch_package(id).map(str::to_string));
         if !matches(filter, &[&p.name, &value, package.as_deref().unwrap_or("")]) {
             continue;
         }
@@ -263,7 +285,11 @@ fn find_part(d: &Design, name: &str) -> Result<u32> {
             let close: Vec<&str> = d
                 .parts
                 .iter()
-                .filter(|p| p.name.to_ascii_lowercase().starts_with(&name.to_ascii_lowercase()[..1.min(name.len())]))
+                .filter(|p| {
+                    p.name
+                        .to_ascii_lowercase()
+                        .starts_with(&name.to_ascii_lowercase()[..1.min(name.len())])
+                })
                 .map(|p| p.name.as_str())
                 .take(12)
                 .collect();
@@ -305,7 +331,10 @@ fn part(d: &Design, name: &str) -> Result<Value> {
     let package = d.element(id).map(|e| e.package.as_str()).or(d.sch_package(id));
     v.insert("package".into(), json!(package));
     if let Some(e) = d.element(id)
-        && let Some(pkg) = d.brd.as_ref().and_then(|b| b.libraries.get(&e.library)?.packages.get(&e.package))
+        && let Some(pkg) = d
+            .brd
+            .as_ref()
+            .and_then(|b| b.libraries.get(&e.library)?.packages.get(&e.package))
         && !pkg.description.is_empty()
     {
         v.insert("package_description".into(), json!(pkg.description));
@@ -382,7 +411,10 @@ fn part(d: &Design, name: &str) -> Result<Value> {
         .collect();
     pads.sort_by(|a, b| natural_cmp(&a.0, &b.0));
     if !pads.is_empty() {
-        v.insert("pads".into(), json!(pads.into_iter().map(|(_, v)| v).collect::<Vec<_>>()));
+        v.insert(
+            "pads".into(),
+            json!(pads.into_iter().map(|(_, v)| v).collect::<Vec<_>>()),
+        );
     }
     if !pins_only.is_empty() {
         v.insert("pins_without_pad".into(), json!(pins_only));
@@ -473,7 +505,14 @@ fn net(d: &Design, name: &str) -> Result<Value> {
         .flat_map(|s| s.nets.iter())
         .find(|net| net.name == n.name)
         .map(|net| net.class.clone())
-        .or_else(|| d.brd.as_ref()?.signals.iter().find(|s| s.name == n.name).map(|s| s.class.clone()));
+        .or_else(|| {
+            d.brd
+                .as_ref()?
+                .signals
+                .iter()
+                .find(|s| s.name == n.name)
+                .map(|s| s.class.clone())
+        });
     if let Some(class) = class.filter(|c| !c.is_empty() && c != "0") {
         v.insert("class".into(), json!(class));
     }
@@ -552,7 +591,10 @@ fn find(d: &Design, text: &str) -> Value {
                 hits.push(k);
             }
         }
-        if let Some(package) = d.element(id).map(|e| e.package.clone()).or(d.sch_package(id).map(str::to_string))
+        if let Some(package) = d
+            .element(id)
+            .map(|e| e.package.clone())
+            .or(d.sch_package(id).map(str::to_string))
             && package.to_ascii_lowercase().contains(&needle)
         {
             hits.push("package".into());
@@ -579,7 +621,10 @@ fn check(d: &Design) -> Value {
         issue(
             "files",
             &d.name,
-            format!("only the {} is there: nothing to compare", if d.sch.is_some() { "schematic" } else { "board" }),
+            format!(
+                "only the {} is there: nothing to compare",
+                if d.sch.is_some() { "schematic" } else { "board" }
+            ),
         );
     }
     let both = d.sch.is_some() && d.brd.is_some();
@@ -591,10 +636,18 @@ fn check(d: &Design) -> Value {
         match (d.sch_part(id), d.element(id)) {
             (Some(_), None) => {
                 if let Some(package) = d.sch_package(id) {
-                    issue("missing_on_board", &p.name, format!("{} ({package}) is in the schematic only", d.value(id)));
+                    issue(
+                        "missing_on_board",
+                        &p.name,
+                        format!("{} ({package}) is in the schematic only", d.value(id)),
+                    );
                 }
             }
-            (None, Some(e)) => issue("missing_in_schematic", &p.name, format!("{} ({}) is on the board only", e.value, e.package)),
+            (None, Some(e)) => issue(
+                "missing_in_schematic",
+                &p.name,
+                format!("{} ({}) is on the board only", e.value, e.package),
+            ),
             (Some(_), Some(e)) => {
                 let value = d.value(id);
                 // Eagle writes no board value for parts whose value comes from their device
@@ -622,14 +675,21 @@ fn check(d: &Design) -> Value {
             }
             for pad in &pin.pads {
                 seen.insert((pin.part, pad.as_str()));
-                let Some(&brd_net) = pad_nets.get(&(pin.part, pad.as_str())) else { continue };
+                let Some(&brd_net) = pad_nets.get(&(pin.part, pad.as_str())) else {
+                    continue;
+                };
                 if brd_net != pin.net {
                     let name = format!("{}.{}", d.parts[pin.part as usize].name, pad);
                     let show = |n: Option<u32>| n.map_or("(none)".to_string(), |n| d.nets[n as usize].name.clone());
                     issue(
                         "connection",
                         &name,
-                        format!("pin {}: schematic net {}, board net {}", pin.pin, show(pin.net), show(brd_net)),
+                        format!(
+                            "pin {}: schematic net {}, board net {}",
+                            pin.pin,
+                            show(pin.net),
+                            show(brd_net)
+                        ),
                     );
                 }
             }
@@ -641,7 +701,10 @@ fn check(d: &Design) -> Value {
                 let detail = if r.polygons.is_empty() {
                     format!("{} airwire(s): connections left to route", r.airwires)
                 } else {
-                    format!("{} airwire(s): left to route, or joined by a polygon that was not poured when the file was saved", r.airwires)
+                    format!(
+                        "{} airwire(s): left to route, or joined by a polygon that was not poured when the file was saved",
+                        r.airwires
+                    )
                 };
                 issue("unrouted", &n.name, detail);
             }
@@ -686,7 +749,12 @@ fn render_command(design: &Arc<Design>, args: &[&str]) -> Result<()> {
                 options.height = h.parse()?;
             }
             "--actions" => {
-                for spec in it.next().context("--actions needs a list")?.split(';').filter(|s| !s.trim().is_empty()) {
+                for spec in it
+                    .next()
+                    .context("--actions needs a list")?
+                    .split(';')
+                    .filter(|s| !s.trim().is_empty())
+                {
                     options.actions.push(Action::parse(spec.trim())?);
                 }
             }
@@ -706,7 +774,11 @@ fn render_command(design: &Arc<Design>, args: &[&str]) -> Result<()> {
     };
     match options.view.as_str() {
         "sch" | "schematic" | "brd" | "board" => {
-            let kind = if options.view.starts_with('s') { Kind::Schematic } else { Kind::Board };
+            let kind = if options.view.starts_with('s') {
+                Kind::Schematic
+            } else {
+                Kind::Board
+            };
             let scene = match kind {
                 Kind::Schematic => {
                     // the sheet asked for, else the first one showing the selection
@@ -724,11 +796,16 @@ fn render_command(design: &Arc<Design>, args: &[&str]) -> Result<()> {
             if !rect.is_empty() {
                 let min = if kind == Kind::Schematic { 40.0 } else { 10.0 };
                 let mut target = rect;
-                target.union(Rect::around(rect.center(), (rect.width().max(rect.height()) * 0.5).max(min * 0.5)));
+                target.union(Rect::around(
+                    rect.center(),
+                    (rect.width().max(rect.height()) * 0.5).max(min * 0.5),
+                ));
                 view.fit_rect(target, 0.06);
             }
             let pixmap = render::render(scene, &view, selection);
-            pixmap.save_png(&options.out).with_context(|| format!("writing {}", options.out))?;
+            pixmap
+                .save_png(&options.out)
+                .with_context(|| format!("writing {}", options.out))?;
         }
         "both" | "ui" => screenshot(design, &options, selection)?,
         other => bail!("--view {other}: sch, brd or both"),
@@ -917,11 +994,19 @@ fn screenshot(design: &Arc<Design>, options: &RenderOptions, selection: Selectio
     drop(step);
     let renderer = screen.borrow();
     let mut pixmap = tiny_skia::Pixmap::new(width, height).context("screenshot size")?;
-    for (dst, pixel) in pixmap.data_mut().as_chunks_mut::<4>().0.iter_mut().zip(renderer.buffer().pixels()) {
+    for (dst, pixel) in pixmap
+        .data_mut()
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(renderer.buffer().pixels())
+    {
         let raw = pixel.raw();
         dst.copy_from_slice(&[(raw >> 16) as u8, (raw >> 8) as u8, raw as u8, 255]);
     }
-    pixmap.save_png(&options.out).with_context(|| format!("writing {}", options.out))?;
+    pixmap
+        .save_png(&options.out)
+        .with_context(|| format!("writing {}", options.out))?;
     Ok(())
 }
 
@@ -936,8 +1021,17 @@ fn scalar(v: &Value) -> Option<String> {
         Value::Array(a) if a.iter().all(|v| scalar(v).is_some() && !v.is_array() && !v.is_object()) => {
             Some(a.iter().filter_map(scalar).collect::<Vec<_>>().join(", "))
         }
-        Value::Object(m) if m.values().all(|v| matches!(v, Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_))) && m.len() <= 6 => {
-            Some(m.iter().map(|(k, v)| format!("{k}={}", scalar(v).unwrap_or_default())).collect::<Vec<_>>().join(" "))
+        Value::Object(m)
+            if m.values()
+                .all(|v| matches!(v, Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_)))
+                && m.len() <= 6 =>
+        {
+            Some(
+                m.iter()
+                    .map(|(k, v)| format!("{k}={}", scalar(v).unwrap_or_default()))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            )
         }
         _ => None,
     }
@@ -951,7 +1045,9 @@ fn human(out: &mut String, v: &Value, indent: usize) {
             for (k, val) in map {
                 match (val, scalar(val)) {
                     (Value::Array(a), _) if a.is_empty() => out.push_str(&format!("{pad}{k}: (none)\n")),
-                    (Value::Object(_), Some(s)) if indent > 0 || s.len() < 80 => out.push_str(&format!("{pad}{k}: {s}\n")),
+                    (Value::Object(_), Some(s)) if indent > 0 || s.len() < 80 => {
+                        out.push_str(&format!("{pad}{k}: {s}\n"))
+                    }
                     (Value::Object(_), _) => {
                         out.push_str(&format!("{pad}{k}:\n"));
                         human(out, val, indent + 1);
@@ -977,7 +1073,10 @@ fn human(out: &mut String, v: &Value, indent: usize) {
                             .collect();
                         out.push_str(&format!("{pad}- {}\n", line.join(" | ")));
                     }
-                    other => out.push_str(&format!("{pad}- {}\n", scalar(other).unwrap_or_else(|| other.to_string()))),
+                    other => out.push_str(&format!(
+                        "{pad}- {}\n",
+                        scalar(other).unwrap_or_else(|| other.to_string())
+                    )),
                 }
             }
         }

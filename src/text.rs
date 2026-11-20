@@ -139,7 +139,15 @@ pub struct Placed {
 impl Placed {
     /// a text with an Eagle orientation as composed through its placement: Eagle turns
     /// texts by 180° when they would read upside down (unless they spin)
-    pub fn new(at: Point, text: String, size: f64, xform: Xform, spin: bool, mut align: Align, distance: f64) -> Placed {
+    pub fn new(
+        at: Point,
+        text: String,
+        size: f64,
+        xform: Xform,
+        spin: bool,
+        mut align: Align,
+        distance: f64,
+    ) -> Placed {
         let mut angle = xform.angle();
         if !spin && angle > 90.0 + 1e-6 && angle <= 270.0 + 1e-6 {
             angle -= 180.0;

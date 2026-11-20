@@ -467,7 +467,8 @@ fn child<'a>(node: Node<'a, 'a>, name: &str) -> Option<Node<'a, 'a>> {
 }
 
 fn children<'a>(node: Option<Node<'a, 'a>>, name: &'a str) -> impl Iterator<Item = Node<'a, 'a>> + 'a {
-    node.into_iter().flat_map(move |n| n.children().filter(move |c| c.has_tag_name(name)))
+    node.into_iter()
+        .flat_map(move |n| n.children().filter(move |c| c.has_tag_name(name)))
 }
 
 fn s(node: Node, name: &str) -> String {
@@ -638,7 +639,11 @@ fn description(node: Node) -> String {
             _ => {}
         }
     }
-    out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string()
+    out.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("")
+        .to_string()
 }
 
 /// a value of the design rules like `10mil`, `0.2mm` or `0.25`, in mm
@@ -661,7 +666,11 @@ fn restring(node: Option<Node>) -> Restring {
     let mut r = Restring::default();
     for p in children(node, "param") {
         // values may list one per layer; the first (top) is enough to draw
-        let Some(value) = p.attribute("value").and_then(|v| v.split_whitespace().next()).and_then(rule_value) else {
+        let Some(value) = p
+            .attribute("value")
+            .and_then(|v| v.split_whitespace().next())
+            .and_then(rule_value)
+        else {
             continue;
         };
         match p.attribute("name").unwrap_or("") {

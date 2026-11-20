@@ -14,7 +14,9 @@ use blit_gui::{
     BoundsClip, Context,
     atom::Rectangle,
     color::Color,
-    image::{ImageData, ImageFit, ImageFormat, ImageHandle, ImageId, ImagePixels, ImageRequest, ImageSampling, ImageTiling},
+    image::{
+        ImageData, ImageFit, ImageFormat, ImageHandle, ImageId, ImagePixels, ImageRequest, ImageSampling, ImageTiling,
+    },
     style::BorderRadius,
     text::{TextOptions, TextOverflow, TextStyle},
 };
@@ -168,7 +170,9 @@ impl App {
 
     /// moves a canvas so the selection shows, zooming on it when asked
     fn reveal(&mut self, side: Side, zoom: bool) {
-        let Some(scene) = scene(&self.design, self.sheet, side) else { return };
+        let Some(scene) = scene(&self.design, self.sheet, side) else {
+            return;
+        };
         let rect = scene.selection_bounds(self.selection);
         if rect.is_empty() {
             return;
@@ -234,9 +238,7 @@ impl App {
         if let Some(query) = &mut self.search {
             match input {
                 Input::Text(c) if !c.is_control() => query.push(c),
-                Input::Key(KeyInput {
-                    key, pressed: true, ..
-                }) => match key {
+                Input::Key(KeyInput { key, pressed: true, .. }) => match key {
                     Key::Backspace => {
                         query.pop();
                     }
@@ -282,9 +284,13 @@ impl App {
     fn top_bar(&mut self, ui: Ui<'_>) {
         let mut bar = ui.layout(flex::row().padding(Sides::xy(12.0, 7.0)).gap(12.0).align(Align::Center));
         bar.insert(Rectangle::new().background(colors::PANEL));
-        bar.child().insert(Text::new("bligle").style(style(15.0, rgb(HIGHLIGHT)).weight(700)));
-        bar.child().insert(Text::new(&self.design.name).style(style(14.0, colors::TEXT)));
-        bar.child().item(flex::item().width(Sizing::grow())).build(|_: Ui<'_>| {});
+        bar.child()
+            .insert(Text::new("bligle").style(style(15.0, rgb(HIGHLIGHT)).weight(700)));
+        bar.child()
+            .insert(Text::new(&self.design.name).style(style(14.0, colors::TEXT)));
+        bar.child()
+            .item(flex::item().width(Sizing::grow()))
+            .build(|_: Ui<'_>| {});
         let search = match &self.search {
             Some(query) => format!("find: {query}▏"),
             None => "/ to find a part or net".to_string(),
@@ -295,19 +301,24 @@ impl App {
             let mut field = ui.layout(flex::row().padding(Sides::xy(10.0, 4.0)));
             field.insert(
                 Rectangle::new()
-                    .background(if open || press.hovered { colors::CHIP_HOVER } else { colors::CHIP })
+                    .background(if open || press.hovered {
+                        colors::CHIP_HOVER
+                    } else {
+                        colors::CHIP
+                    })
                     .radius(BorderRadius::uniform(4.0)),
             );
-            field.child().insert(
-                Text::new(&search).style(style(13.0, if open { colors::TEXT } else { colors::MUTED })),
-            );
+            field
+                .child()
+                .insert(Text::new(&search).style(style(13.0, if open { colors::TEXT } else { colors::MUTED })));
             press.clicked
         });
         if clicked && !open {
             self.search = Some(String::new());
         }
         if let Some(message) = &self.message {
-            bar.child().insert(Text::new(message).style(style(13.0, Color::rgb(255, 120, 110))));
+            bar.child()
+                .insert(Text::new(message).style(style(13.0, Color::rgb(255, 120, 110))));
         }
     }
 
@@ -333,7 +344,8 @@ impl App {
                     Some(_) => "Schematic",
                     None => "Schematic (no .sch)",
                 };
-                bar.child().insert(Text::new(title).style(style(13.0, colors::TEXT).weight(600)));
+                bar.child()
+                    .insert(Text::new(title).style(style(13.0, colors::TEXT).weight(600)));
                 if sheets > 1 {
                     if chip(&mut bar, "◀", self.sheet > 0) {
                         self.set_sheet(self.sheet.saturating_sub(1));
@@ -350,14 +362,17 @@ impl App {
                     Some(_) => "Board",
                     None => "Board (no .brd)",
                 };
-                bar.child().insert(Text::new(title).style(style(13.0, colors::TEXT).weight(600)));
+                bar.child()
+                    .insert(Text::new(title).style(style(13.0, colors::TEXT).weight(600)));
                 if let Some(board) = &self.design.board {
                     let size = format!("{:.1} × {:.1} mm", board.bounds.width(), board.bounds.height());
                     bar.child().insert(Text::new(&size).style(style(13.0, colors::MUTED)));
                 }
             }
         }
-        bar.child().item(flex::item().width(Sizing::grow())).build(|_: Ui<'_>| {});
+        bar.child()
+            .item(flex::item().width(Sizing::grow()))
+            .build(|_: Ui<'_>| {});
         if self.hover.0 == side
             && let Some(name) = self.design.selection_name(self.hover.1)
         {
@@ -378,7 +393,8 @@ impl App {
         let scale = self.ui_scale();
         let Some(kind) = scene(&self.design, self.sheet, side).map(|s| s.kind) else {
             let mut node = ui.layout(flex::column().align(Align::Center).justify(Justify::Center));
-            node.child().insert(Text::new("nothing to show").style(style(14.0, colors::MUTED)));
+            node.child()
+                .insert(Text::new("nothing to show").style(style(14.0, colors::MUTED)));
             return;
         };
         let mut node = ui.layout(flex::column());
@@ -404,7 +420,9 @@ impl App {
             Side::Brd => &mut self.brd,
         };
         let scene = scene(design, sheet, side).expect("scene");
-        let view = canvas.view.get_or_insert_with(|| Viewport::fit(scene.bounds, size.0, size.1));
+        let view = canvas
+            .view
+            .get_or_insert_with(|| Viewport::fit(scene.bounds, size.0, size.1));
         if (view.width, view.height) != size {
             view.width = size.0;
             view.height = size.1;
@@ -446,7 +464,12 @@ impl App {
             self.last_click = if double { None } else { Some((Instant::now(), px, py)) };
             self.select(selection, Some(side), double);
         }
-        let reveals: Vec<(Side, bool)> = self.pending_reveal.iter().copied().filter(|(s, _)| *s == side).collect();
+        let reveals: Vec<(Side, bool)> = self
+            .pending_reveal
+            .iter()
+            .copied()
+            .filter(|(s, _)| *s == side)
+            .collect();
         if !reveals.is_empty() {
             self.pending_reveal.retain(|(s, _)| *s != side);
             for (_, zoom) in reveals {
@@ -462,7 +485,9 @@ impl App {
             Side::Sch => &mut self.sch,
             Side::Brd => &mut self.brd,
         };
-        let Some(scene) = self::scene(design, sheet, side) else { return };
+        let Some(scene) = self::scene(design, sheet, side) else {
+            return;
+        };
         let view = canvas.view.expect("view");
         let stale = canvas
             .shown
@@ -554,7 +579,11 @@ fn chip(bar: &mut Ui<'_, blit::state::Open<flex::Layout>>, label: &str, enabled:
         let mut chip = ui.layout(flex::row().padding(Sides::xy(7.0, 2.0)));
         chip.insert(
             Rectangle::new()
-                .background(if press.hovered && enabled { colors::CHIP_HOVER } else { colors::CHIP })
+                .background(if press.hovered && enabled {
+                    colors::CHIP_HOVER
+                } else {
+                    colors::CHIP
+                })
                 .radius(BorderRadius::uniform(4.0)),
         );
         chip.child()

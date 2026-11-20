@@ -256,7 +256,10 @@ impl Xform {
     }
 
     pub fn apply(&self, p: Point) -> Point {
-        Point::new(self.a * p.x + self.c * p.y + self.e, self.b * p.x + self.d * p.y + self.f)
+        Point::new(
+            self.a * p.x + self.c * p.y + self.e,
+            self.b * p.x + self.d * p.y + self.f,
+        )
     }
 
     pub fn mirrored(&self) -> bool {
@@ -312,7 +315,9 @@ impl Viewport {
         }
         let w = self.width as f64 * (1.0 - 2.0 * margin);
         let h = self.height as f64 * (1.0 - 2.0 * margin);
-        self.scale = (w / rect.width().max(1e-3)).min(h / rect.height().max(1e-3)).clamp(0.05, 5000.0);
+        self.scale = (w / rect.width().max(1e-3))
+            .min(h / rect.height().max(1e-3))
+            .clamp(0.05, 5000.0);
         self.center = rect.center();
     }
 
@@ -372,8 +377,22 @@ mod tests {
 
     #[test]
     fn rot_parse() {
-        assert_eq!(Rot::parse("MR90"), Rot { angle: 90.0, mirror: true, spin: false });
-        assert_eq!(Rot::parse("SR180"), Rot { angle: 180.0, mirror: false, spin: true });
+        assert_eq!(
+            Rot::parse("MR90"),
+            Rot {
+                angle: 90.0,
+                mirror: true,
+                spin: false
+            }
+        );
+        assert_eq!(
+            Rot::parse("SR180"),
+            Rot {
+                angle: 180.0,
+                mirror: false,
+                spin: true
+            }
+        );
         assert_eq!(Rot::parse("R270").angle, 270.0);
         assert_eq!(Rot::parse(""), Rot::default());
     }
@@ -387,7 +406,8 @@ mod tests {
         let m = Xform::place(Point::default(), Rot::parse("MR90"));
         assert!(m.mirrored());
         assert!((m.angle() - 90.0).abs() < 1e-9);
-        let both = Xform::place(Point::default(), Rot::parse("MR0")).then(Xform::place(Point::default(), Rot::parse("R90")));
+        let both =
+            Xform::place(Point::default(), Rot::parse("MR0")).then(Xform::place(Point::default(), Rot::parse("R90")));
         assert!(both.mirrored());
         assert!((both.angle() - 270.0).abs() < 1e-9);
     }

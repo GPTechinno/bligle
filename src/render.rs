@@ -71,7 +71,11 @@ fn layer_rgb(scene: &Scene, layer: u16) -> Rgb {
     let index = scene.layer_colors.get(&layer).copied().unwrap_or(7) as usize;
     let rgb = palette[index % 16];
     // black on black would vanish
-    if rgb == (0, 0, 0) && scene.kind == Kind::Board { palette[7] } else { rgb }
+    if rgb == (0, 0, 0) && scene.kind == Kind::Board {
+        palette[7]
+    } else {
+        rgb
+    }
 }
 
 /// draws `scene` as seen through `view` into a new pixmap of the view's size
@@ -104,7 +108,11 @@ pub fn render(scene: &Scene, view: &Viewport, selection: Selection) -> Pixmap {
             Transform::identity(),
             None,
         );
-        for item in scene.items.iter().filter(|i| selection.matches(i) && shown(scene.kind, i.layer)) {
+        for item in scene
+            .items
+            .iter()
+            .filter(|i| selection.matches(i) && shown(scene.kind, i.layer))
+        {
             painter.draw(&item.shape, item.bounds, HIGHLIGHT, 1.0, bg);
         }
         if let Selection::Part(part) = selection
@@ -160,7 +168,8 @@ impl Painter<'_> {
             line_join: LineJoin::Round,
             ..Stroke::default()
         };
-        self.pixmap.stroke_path(&path, &paint(color), &stroke, Transform::identity(), None);
+        self.pixmap
+            .stroke_path(&path, &paint(color), &stroke, Transform::identity(), None);
     }
 
     fn fill(&mut self, pts: &[Point], color: Color) {
@@ -171,7 +180,8 @@ impl Painter<'_> {
         }
         pb.close();
         if let Some(path) = pb.finish() {
-            self.pixmap.fill_path(&path, &paint(color), FillRule::Winding, Transform::identity(), None);
+            self.pixmap
+                .fill_path(&path, &paint(color), FillRule::Winding, Transform::identity(), None);
         }
     }
 
@@ -180,14 +190,16 @@ impl Painter<'_> {
         let r = (r * self.view.scale) as f32;
         if width == 0.0 {
             if let Some(path) = PathBuilder::from_circle(x, y, r.max(0.5)) {
-                self.pixmap.fill_path(&path, &paint(color), FillRule::Winding, Transform::identity(), None);
+                self.pixmap
+                    .fill_path(&path, &paint(color), FillRule::Winding, Transform::identity(), None);
             }
         } else if let Some(path) = PathBuilder::from_circle(x, y, r.max(0.5)) {
             let stroke = Stroke {
                 width: self.width(width),
                 ..Stroke::default()
             };
-            self.pixmap.stroke_path(&path, &paint(color), &stroke, Transform::identity(), None);
+            self.pixmap
+                .stroke_path(&path, &paint(color), &stroke, Transform::identity(), None);
         }
     }
 
@@ -230,13 +242,16 @@ impl Painter<'_> {
         let r = rect.inflate(pad);
         let (x0, y0) = self.px(Point::new(r.min.x, r.max.y));
         let (x1, y1) = self.px(Point::new(r.max.x, r.min.y));
-        let Some(rect) = tiny_skia::Rect::from_ltrb(x0, y0, x1, y1) else { return };
+        let Some(rect) = tiny_skia::Rect::from_ltrb(x0, y0, x1, y1) else {
+            return;
+        };
         let path = PathBuilder::from_rect(rect);
         let stroke = Stroke {
             width: 1.5,
             dash: tiny_skia::StrokeDash::new(vec![6.0, 4.0], 0.0),
             ..Stroke::default()
         };
-        self.pixmap.stroke_path(&path, &paint(color(rgb, 1.0)), &stroke, Transform::identity(), None);
+        self.pixmap
+            .stroke_path(&path, &paint(color(rgb, 1.0)), &stroke, Transform::identity(), None);
     }
 }

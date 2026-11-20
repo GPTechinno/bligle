@@ -42,14 +42,29 @@ pub enum Kind {
 #[derive(Clone, Debug)]
 pub enum Shape {
     /// an open polyline: a wire, a track or an arc
-    Line { pts: Vec<Point>, width: f64, flat: bool },
+    Line {
+        pts: Vec<Point>,
+        width: f64,
+        flat: bool,
+    },
     /// a circle, or a disc when `width` is 0
-    Circle { c: Point, r: f64, width: f64 },
+    Circle {
+        c: Point,
+        r: f64,
+        width: f64,
+    },
     /// a closed polygon; a pour is a signal polygon (Eagle stores its outline only)
-    Poly { pts: Vec<Point>, width: f64, pour: bool },
+    Poly {
+        pts: Vec<Point>,
+        width: f64,
+        pour: bool,
+    },
     Text(Placed),
     /// a hole through the board
-    Drill { c: Point, r: f64 },
+    Drill {
+        c: Point,
+        r: f64,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -66,12 +81,19 @@ impl Item {
     fn distance(&self, p: Point) -> f64 {
         match &self.shape {
             Shape::Line { pts, width, .. } => {
-                let d = pts.windows(2).map(|w| segment_dist(p, w[0], w[1])).fold(f64::INFINITY, f64::min);
+                let d = pts
+                    .windows(2)
+                    .map(|w| segment_dist(p, w[0], w[1]))
+                    .fold(f64::INFINITY, f64::min);
                 (d - width * 0.5).max(0.0)
             }
             Shape::Circle { c, r, width } => {
                 let d = p.dist(*c);
-                if *width == 0.0 { (d - r).max(0.0) } else { ((d - r).abs() - width * 0.5).max(0.0) }
+                if *width == 0.0 {
+                    (d - r).max(0.0)
+                } else {
+                    ((d - r).abs() - width * 0.5).max(0.0)
+                }
             }
             Shape::Poly { pts, width, pour } => {
                 let edge = pts
@@ -79,7 +101,11 @@ impl Item {
                     .zip(pts.iter().cycle().skip(1))
                     .map(|(a, b)| segment_dist(p, *a, *b))
                     .fold(f64::INFINITY, f64::min);
-                if !pour && inside(pts, p) { 0.0 } else { (edge - width * 0.5).max(0.0) }
+                if !pour && inside(pts, p) {
+                    0.0
+                } else {
+                    (edge - width * 0.5).max(0.0)
+                }
             }
             Shape::Text(_) => {
                 if self.bounds.contains(p) {
@@ -131,7 +157,9 @@ impl Scene {
     pub fn pick(&self, p: Point, tolerance: f64) -> Selection {
         let mut best: Option<(f64, u32)> = None;
         for item in &self.items {
-            let (None, Some(net)) = (item.part, item.net) else { continue };
+            let (None, Some(net)) = (item.part, item.net) else {
+                continue;
+            };
             if !shown(self.kind, item.layer) || !item.bounds.inflate(tolerance).contains(p) {
                 continue;
             }
@@ -161,7 +189,11 @@ impl Scene {
                 }
             }
             Selection::Net(_) => {
-                for item in self.items.iter().filter(|i| selection.matches(i) && shown(self.kind, i.layer)) {
+                for item in self
+                    .items
+                    .iter()
+                    .filter(|i| selection.matches(i) && shown(self.kind, i.layer))
+                {
                     rect.union(item.bounds);
                 }
             }
@@ -297,7 +329,11 @@ impl Design {
             parts[slot].brd = parts[slot].brd.or(b);
         }
         parts.sort_by(|a, b| natural_cmp(&a.name, &b.name));
-        let part_ids = parts.iter().enumerate().map(|(i, p)| (p.name.clone(), i as u32)).collect();
+        let part_ids = parts
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.name.clone(), i as u32))
+            .collect();
 
         let mut net_names: HashMap<String, (bool, bool)> = HashMap::new();
         for net in sch.iter().flat_map(|s| s.sheets.iter()).flat_map(|s| s.nets.iter()) {
@@ -311,7 +347,11 @@ impl Design {
             .map(|(name, (in_sch, in_brd))| NetRef { name, in_sch, in_brd })
             .collect();
         nets.sort_by(|a, b| natural_cmp(&a.name, &b.name));
-        let net_ids = nets.iter().enumerate().map(|(i, n)| (n.name.clone(), i as u32)).collect();
+        let net_ids = nets
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.name.clone(), i as u32))
+            .collect();
 
         let mut design = Design {
             name,
@@ -376,7 +416,12 @@ impl Design {
     }
 
     fn deviceset(&self, part: &eagle::Part) -> Option<&eagle::DeviceSet> {
-        self.sch.as_ref()?.libraries.get(&part.library)?.devicesets.get(&part.deviceset)
+        self.sch
+            .as_ref()?
+            .libraries
+            .get(&part.library)?
+            .devicesets
+            .get(&part.deviceset)
     }
 
     /// the package the schematic's device uses (none for supply symbols, frames...)
@@ -394,7 +439,10 @@ impl Design {
     }
 
     pub fn description(&self, part: u32) -> String {
-        let from_sch = self.sch_part(part).and_then(|p| self.deviceset(p)).map(|d| d.description.clone());
+        let from_sch = self
+            .sch_part(part)
+            .and_then(|p| self.deviceset(p))
+            .map(|d| d.description.clone());
         from_sch.filter(|d| !d.is_empty()).unwrap_or_default()
     }
 
@@ -485,13 +533,25 @@ impl Design {
                 let (Some(part), Some(&pid)) = (parts.get(inst.part.as_str()), self.part_ids.get(&inst.part)) else {
                     continue;
                 };
-                let Some(lib) = sch.libraries.get(&part.library) else { continue };
-                let Some(ds) = lib.devicesets.get(&part.deviceset) else { continue };
-                let Some(gate) = ds.gates.iter().find(|g| g.name == inst.gate) else { continue };
-                let Some(symbol) = lib.symbols.get(&gate.symbol) else { continue };
+                let Some(lib) = sch.libraries.get(&part.library) else {
+                    continue;
+                };
+                let Some(ds) = lib.devicesets.get(&part.deviceset) else {
+                    continue;
+                };
+                let Some(gate) = ds.gates.iter().find(|g| g.name == inst.gate) else {
+                    continue;
+                };
+                let Some(symbol) = lib.symbols.get(&gate.symbol) else {
+                    continue;
+                };
                 let device = ds.devices.get(&part.device);
                 let mut lookup_pins = PinLookup::default();
-                for c in device.iter().flat_map(|d| d.connects.iter()).filter(|c| c.gate == inst.gate) {
+                for c in device
+                    .iter()
+                    .flat_map(|d| d.connects.iter())
+                    .filter(|c| c.gate == inst.gate)
+                {
                     lookup_pins.pads.insert(c.pin.clone(), c.pads.clone());
                 }
                 for (&(p, g, pin), &net) in &pin_nets {
@@ -590,7 +650,9 @@ impl Design {
         }
         let empty = HashMap::new();
         for e in &brd.elements {
-            let Some(&pid) = self.part_ids.get(&e.name) else { continue };
+            let Some(&pid) = self.part_ids.get(&e.name) else {
+                continue;
+            };
             let Some(package) = brd.libraries.get(&e.library).and_then(|l| l.packages.get(&e.package)) else {
                 continue;
             };
@@ -662,7 +724,10 @@ fn literal(text: &str) -> Option<String> {
 /// `>ATTR` placeholders from a list of attributes
 fn lookup(text: &str, attrs: &[(String, String)]) -> Option<String> {
     let key = text.strip_prefix('>')?;
-    attrs.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.clone())
+    attrs
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v.clone())
 }
 
 /// compares names so that R2 comes before R10
@@ -800,11 +865,26 @@ impl Builder {
     /// a text with an orientation composed through `xform`; schematic texts are never
     /// drawn mirrored (Eagle swaps their alignment instead)
     #[allow(clippy::too_many_arguments)]
-    fn placed(&self, at: Point, text: &str, size: f64, xform: Xform, spin: bool, mut align: Align, distance: f64) -> Placed {
+    fn placed(
+        &self,
+        at: Point,
+        text: &str,
+        size: f64,
+        xform: Xform,
+        spin: bool,
+        mut align: Align,
+        distance: f64,
+    ) -> Placed {
         let mut xform = xform;
         if self.kind == Kind::Schematic && xform.mirrored() {
             align.h = -align.h;
-            xform = Xform::place(Point::default(), Rot { angle: xform.angle(), ..Rot::default() });
+            xform = Xform::place(
+                Point::default(),
+                Rot {
+                    angle: xform.angle(),
+                    ..Rot::default()
+                },
+            );
         }
         Placed::new(at, strip_overbar(text), size, xform, spin, align, distance)
     }
@@ -818,7 +898,15 @@ impl Builder {
             Display::Name => a.name.clone(),
             Display::Both => format!("{}={}", a.name, value),
         };
-        let placed = self.placed(at, &text, a.size, Xform::place(Point::default(), a.rot), a.rot.spin, a.align, 50.0);
+        let placed = self.placed(
+            at,
+            &text,
+            a.size,
+            Xform::place(Point::default(), a.rot),
+            a.rot.spin,
+            a.align,
+            50.0,
+        );
         self.text(placed, a.layer, Some(part), None);
     }
 
@@ -860,7 +948,13 @@ impl Builder {
                 );
             }
             Prim::Rect { a, b, layer: l, rot } => {
-                let local = x.then(Xform::place((*a + *b) * 0.5, Rot { angle: rot.angle, ..Rot::default() }));
+                let local = x.then(Xform::place(
+                    (*a + *b) * 0.5,
+                    Rot {
+                        angle: rot.angle,
+                        ..Rot::default()
+                    },
+                ));
                 let (hw, hh) = ((b.x - a.x).abs() * 0.5, (b.y - a.y).abs() * 0.5);
                 let pts = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
                     .map(|(px, py)| local.apply(Point::new(px, py)))
@@ -932,7 +1026,10 @@ impl Builder {
                 roundness,
             } => {
                 let local = x.then(Xform::place(*c, *rot));
-                let pts = rounded_rect(*dx, *dy, *roundness).into_iter().map(|p| local.apply(p)).collect();
+                let pts = rounded_rect(*dx, *dy, *roundness)
+                    .into_iter()
+                    .map(|p| local.apply(p))
+                    .collect();
                 let net = cx.pad_nets.and_then(|m| m.get(name)).copied();
                 let l = layer(*l);
                 self.push(
@@ -989,7 +1086,12 @@ impl Builder {
                     });
                 }
             }
-            Prim::Via { c, drill, diameter, shape } => {
+            Prim::Via {
+                c,
+                drill,
+                diameter,
+                shape,
+            } => {
                 let d = self.restring.via_diameter(*drill, *diameter);
                 let shape = pad_shape(*shape, d, x.then(Xform::translate(c.x, c.y)));
                 self.push(shape, 18, cx.part, cx.net);
@@ -1013,9 +1115,15 @@ impl Builder {
                 function,
             } => self.pin(cx, name, *c, *length, *rot, *show_name, *show_pad, *function),
             Prim::Frame { a, b, layer: l, .. } => {
-                let pts = [Point::new(a.x, a.y), Point::new(b.x, a.y), Point::new(b.x, b.y), Point::new(a.x, b.y), Point::new(a.x, a.y)]
-                    .map(|p| x.apply(p))
-                    .to_vec();
+                let pts = [
+                    Point::new(a.x, a.y),
+                    Point::new(b.x, a.y),
+                    Point::new(b.x, b.y),
+                    Point::new(a.x, b.y),
+                    Point::new(a.x, a.y),
+                ]
+                .map(|p| x.apply(p))
+                .to_vec();
                 self.push(
                     Shape::Line {
                         pts,
@@ -1054,7 +1162,12 @@ impl Builder {
                     let unit = |v: Point| if v.len() > 0.0 { v * (1.0 / v.len()) } else { v };
                     let (u, v) = (unit(c1 - c0), unit(c3 - c0));
                     let m = size * 0.35;
-                    let pts = vec![c0 - u * m - v * m, c1 + u * m - v * m, c2 + u * m + v * m, c3 - u * m + v * m];
+                    let pts = vec![
+                        c0 - u * m - v * m,
+                        c1 + u * m - v * m,
+                        c2 + u * m + v * m,
+                        c3 - u * m + v * m,
+                    ];
                     self.push(
                         Shape::Poly {
                             pts,
@@ -1144,7 +1257,13 @@ impl Builder {
         if show_pad && !pads.is_empty() && length > 0.0 {
             // above horizontal pins, left of vertical ones, reading upright
             let angle = full.angle().rem_euclid(180.0);
-            let upright = Xform::place(Point::default(), Rot { angle, ..Rot::default() });
+            let upright = Xform::place(
+                Point::default(),
+                Rot {
+                    angle,
+                    ..Rot::default()
+                },
+            );
             let normal = upright.apply(Point::new(0.0, 0.3));
             let mid = full.apply(Point::new(length * 0.5, 0.0)) + normal;
             let placed = Placed::new(mid, pads.join(" "), 1.27, upright, false, Align { h: 0, v: -1 }, 50.0);
@@ -1207,10 +1326,20 @@ fn rounded_rect(dx: f64, dy: f64, roundness: f64) -> Vec<Point> {
     let (hw, hh) = (dx * 0.5, dy * 0.5);
     let r = (roundness.clamp(0.0, 100.0) / 100.0) * hw.min(hh);
     if r <= 0.0 {
-        return vec![Point::new(-hw, -hh), Point::new(hw, -hh), Point::new(hw, hh), Point::new(-hw, hh)];
+        return vec![
+            Point::new(-hw, -hh),
+            Point::new(hw, -hh),
+            Point::new(hw, hh),
+            Point::new(-hw, hh),
+        ];
     }
     let mut pts = Vec::new();
-    for (cx, cy, start) in [(hw - r, hh - r, 0.0), (-hw + r, hh - r, 90.0), (-hw + r, -hh + r, 180.0), (hw - r, -hh + r, 270.0)] {
+    for (cx, cy, start) in [
+        (hw - r, hh - r, 0.0),
+        (-hw + r, hh - r, 90.0),
+        (-hw + r, -hh + r, 180.0),
+        (hw - r, -hh + r, 270.0),
+    ] {
         for i in 0..=6 {
             let a = (start + 15.0 * i as f64).to_radians();
             pts.push(Point::new(cx + r * a.cos(), cy + r * a.sin()));
@@ -1229,7 +1358,9 @@ fn pad_shape(shape: PadShape, d: f64, xform: Xform) -> Shape {
             width: 0.0,
         },
         PadShape::Square => Shape::Poly {
-            pts: [(-r, -r), (r, -r), (r, r), (-r, r)].map(|(x, y)| xform.apply(Point::new(x, y))).to_vec(),
+            pts: [(-r, -r), (r, -r), (r, r), (-r, r)]
+                .map(|(x, y)| xform.apply(Point::new(x, y)))
+                .to_vec(),
             width: 0.0,
             pour: false,
         },
@@ -1282,7 +1413,12 @@ mod tests {
 
     #[test]
     fn point_inside() {
-        let square = [Point::new(0.0, 0.0), Point::new(1.0, 0.0), Point::new(1.0, 1.0), Point::new(0.0, 1.0)];
+        let square = [
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 0.0),
+            Point::new(1.0, 1.0),
+            Point::new(0.0, 1.0),
+        ];
         assert!(inside(&square, Point::new(0.5, 0.5)));
         assert!(!inside(&square, Point::new(1.5, 0.5)));
     }
